@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name = "viewport" content = "width=device-width, initial-scale=1.0">
+    <title>Ray Caster</title>
+    <script>
+        const GRAY_25_ = 0xBDBDBD
+        const BLUE_    = 0x0000FF
+        const KEY_CODE_LEFT_ = 0x000025
+        const KEY_CODE_UP_ = 0x000026
+        const KEY_CODE_RIGHT_ = 0x000027
+        const KEY_CODE_DOWN_ = 0x000028
+
+        let ToRadians = function(degree_ = Number())
+        {
+            return degree_ * Math.PI / 180;
+        }
+
+        function WINDOW_DATA(id_ = String(), width_ = Number(), height_ = Number())
+        {
+            this.width = width_;
+            this.height = height_;
+            let canvasContex = document.getElementById(id_).getContext("2d");
+            canvasContex.canvas.width = width_;
+            canvasContex.canvas.height = height_;
+
+            let screenBuffer = canvasContex.getImageData(0, 0, width_, height_);
+            
+            this.DrawLine = function(color_ = Number(), x_ = Number(), y_one_ = Number(), y_two_ = Number())
+            {
+                for (let i = y_one_; i < y_two_ + 1; i++)
+                {
+                    screenBuffer.data[i * 4 * this.width + (x_ * 4) + 0] = (color_ & 0xFF0000) >> 16;
+                    screenBuffer.data[i * 4 * this.width + (x_ * 4) + 1] = (color_ & 0x00FF00) >> 8;
+                    screenBuffer.data[i * 4 * this.width + (x_ * 4) + 2] = color_ & 0x0000FF;
+                    screenBuffer.data[i * 4 * this.width + (x_ * 4) + 3] = 0xFF;
+                }
+            }
+            this.ClearScreenTo = function(color_ = Number())
+            {
+                for (let i = 0; i < this.width * this.height * 4; i+=4)
+                {
+                    screenBuffer.data[i + 0] = (color_ & 0xFF0000) >> 16;
+                    screenBuffer.data[i + 1] = (color_ & 0x00FF00) >> 8;
+                    screenBuffer.data[i + 2] = color_ & 0x0000FF;
+                    screenBuffer.data[i + 3] = 0xFF;
+                }
+            }
+            this.DrawScreen = function() { canvasContex.putImageData(screenBuffer, 0, 0); }
+            
+            this.elapsedTime = 1;
+            let self = this;
+            this.Start = function(app_loop_ = null)
+            {
+                let timePointOne = 0;
+
+                function GameLoop(time_stamp_ = Number())
+                { 
+                    self.elapsedTime = (time_stamp_ - timePointOne) / 1000;
+                    timePointOne = time_stamp_;
+                
+                    app_loop_();
+                
+                    window.requestAnimationFrame(GameLoop);
+                }
+
+                window.requestAnimationFrame(GameLoop);
+            }
+            
+            let keysBufferOne = [];
+            for (let i = 0; i < 256; i++) keysBufferOne.push(false);
+            let KeyDownHandler = function(event_) { keysBufferOne[event_.keyCode] = true; }
+            let KeyUpHandler = function(event_) { keysBufferOne[event_.keyCode] = false; }
+            window.addEventListener("keydown", KeyDownHandler, false);
+            window.addEventListener("keyup", KeyUpHandler, false);
+            this.KeyPress = function (key_code_) { return keysBufferOne[key_code_]; }
+        }
+
+        function PLAYER_DATA(position_ = {x: Number(), y: Number()}, look_at_ = Number(), field_of_view_ = Number(), rotate_velocity_ = Number(), move_velocity_ = Number(), window_width_ = Number())
+        {
+            this.position = position_;
+            this.lookAt = look_at_;
+            this.fieldOfView = field_of_view_;
+            this.screenHalfToDistanceToScreen = Math.sin(ToRadians(field_of_view_ / 2)) / Math.cos(ToRadians(field_of_view_ / 2));
+            this.distanceToScreen = window_width_ / 2.0 / this.screenHalfToDistanceToScreen;
+            this.rotateVelocity = rotate_velocity_;
+            this.moveVelocity = move_velocity_;
+        }
+
+        function GAME_DATA(map_ = String(), map_width_ = Number())
+        {
+            this.map = map_;
+            this.mapWidth = map_width_;
+
+            this.GetMapData = function(x_ = Number(), y_ = Number()) { return this.map.charCodeAt(y_ * this.mapWidth + x_) - 48; }
+        }
+
+        function main()
+        {
+            let windowData = new WINDOW_DATA("GAME_AREA_", 400, 300);
+            let playerData = new PLAYER_DATA({x: 5, y: 5}, 0, 60, 100, 5, windowData.width);
+            let gameData = new GAME_DATA("1111111111100000000110100001011000000001100000000110000000011000000001101000010110000000011111111111", 10);
+
+            function Raycaster()
+            {
+                windowData.ClearScreenTo(GRAY_25_);
+
+                let playerLookAtX = Math.cos(ToRadians(playerData.lookAt));
+                let playerLookAtY = Math.sin(ToRadians(playerData.lookAt));
+                let playerPlaneX = playerLookAtY * playerData.screenHalfToDistanceToScreen;
+                let playerPlaneY = -playerLookAtX * playerData.screenHalfToDistanceToScreen;
+                let mapPositionOffset = {x: playerData.position.x % 1, y: playerData.position.y % 1};
+                let mapPosition = {x: Math.floor(playerData.position.x), y: Math.floor(playerData.position.y)};
+
+                for (let i = 0; i < windowData.width; i++)
+                {
+                    let cameraX = 2 * i / windowData.width - 1;
+
+                    let rayDirection = {x: playerLookAtX + playerPlaneX * cameraX, y: playerLookAtY + playerPlaneY * cameraX};
+                    if (rayDirection.x == 0) rayDirection.x = 0.000001;
+                    if (rayDirection.y == 0) rayDirection.y = 0.000001;  
+
+                    let playerMapPositionForDDA = {x: mapPosition.x, y: mapPosition.y};
+                    let step = {x: 0, y: 0};
+                    let deltaDistance = {x: Math.abs(1 / rayDirection.x), y: Math.abs(1 / rayDirection.y)};
+                    let sideDistance = {x: 0, y: 0};
+                    let distanceToWall = 0;
+                    let wallSideX = true;
+                
+                    if (rayDirection.x < 0)
+                    {
+                        step.x = -1;
+                        sideDistance.x = mapPositionOffset.x * deltaDistance.x;
+                    }
+                    else
+                    {
+                        step.x = 1;
+                        sideDistance.x = (1 - mapPositionOffset.x) * deltaDistance.x;
+                    }
+                    if (rayDirection.y < 0)
+                    {
+                        step.y = -1;
+                        sideDistance.y = mapPositionOffset.y * deltaDistance.y;
+                    }
+                    else
+                    {
+                        step.y = 1;
+                        sideDistance.y = (1 - mapPositionOffset.y) * deltaDistance.y;
+                    }
+
+                    while (true)
+                    {
+                        if (sideDistance.x < sideDistance.y)
+                        {
+                            sideDistance.x += deltaDistance.x;
+                            playerMapPositionForDDA.x += step.x;
+                            wallSideX = true;
+                        }
+                        else
+                        {
+                            sideDistance.y += deltaDistance.y;
+                            playerMapPositionForDDA.y += step.y;
+                            wallSideX = false;
+                        }
+                    
+                        if (gameData.GetMapData(playerMapPositionForDDA.x, playerMapPositionForDDA.y) === 1) break;
+                    }
+
+                    if (wallSideX) distanceToWall = sideDistance.x - deltaDistance.x;
+                    else distanceToWall = sideDistance.y - deltaDistance.y;
+
+                    let wallHeight = 1 / distanceToWall * playerData.distanceToScreen;
+
+                    let ceiling = Math.floor(windowData.height / 2 - wallHeight / 2);
+                    if (ceiling < 0) ceiling = 0;
+                    let floor = Math.floor(windowData.height / 2 + wallHeight / 2);
+                    if (floor >= windowData.height) floor = windowData.height - 1;
+
+                    windowData.DrawLine(BLUE_, i, ceiling, floor);
+                }
+
+                let playerRotateVelocity = playerData.rotateVelocity * windowData.elapsedTime;
+	            let playerMoveVelocity = playerData.moveVelocity * windowData.elapsedTime;
+                if (windowData.KeyPress(KEY_CODE_LEFT_))
+                {
+                    playerData.lookAt = playerData.lookAt + playerRotateVelocity;
+	            	if (playerData.lookAt >= 360) playerData.lookAt - 360;
+                }
+                if (windowData.KeyPress(KEY_CODE_RIGHT_))
+                {
+                    playerData.lookAt = playerData.lookAt - playerRotateVelocity;
+	            	if (playerData.lookAt < 0) playerData.lookAt + 360;
+                }
+                if (windowData.KeyPress(KEY_CODE_UP_))
+                {
+                    let newPositionX = playerData.position.x + playerLookAtX * playerMoveVelocity;
+                    let newPositionY = playerData.position.y + playerLookAtY * playerMoveVelocity;
+                    if (Math.floor(newPositionX) >= 0 &&  Math.floor(newPositionX) < gameData.mapWidth && Math.floor(newPositionY) >= 0 && Math.floor(newPositionY) < gameData.mapWidth)
+                    {
+                        if (gameData.GetMapData(Math.floor(newPositionX), Math.floor(newPositionY)) == 0)
+                        {
+                            playerData.position.x = newPositionX;
+                            playerData.position.y = newPositionY;
+                        }
+                    }
+                }
+                if (windowData.KeyPress(KEY_CODE_DOWN_))
+                {
+                    let newPositionX = playerData.position.x - playerLookAtX * playerMoveVelocity;
+                    let newPositionY = playerData.position.y - playerLookAtY * playerMoveVelocity;
+                    if (Math.floor(newPositionX) >= 0 &&  Math.floor(newPositionX) < gameData.mapWidth && Math.floor(newPositionY) >= 0 && Math.floor(newPositionY) < gameData.mapWidth)
+                    {
+                        if (gameData.GetMapData(Math.floor(newPositionX), Math.floor(newPositionY)) == 0)
+                        {
+                            playerData.position.x = newPositionX;
+                            playerData.position.y = newPositionY;
+                        }
+                    }
+                }
+
+                windowData.DrawScreen();
+            }
+
+            windowData.Start(Raycaster);
+        }
+
+        window.addEventListener("load", main);
+    </script>
+</head>
+<body>
+    <canvas id = "GAME_AREA_"></canvas>
+</body>
+</html>
