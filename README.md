@@ -1,4 +1,3 @@
-# Raycaster-Games
+# Raycaster-For-Every-Language
 
-This repository is for all the simple raycaster games I have made for practicing computer languages.
-When I learn a new computer language I try to make a simple raycaster with it to learn I/O, GUI, and time functionality of the language and to have fun.
+This repository is for all the simple raycaster games created for as many languages as possible. This is to learn syntax, data types, I/O, GUI, and time functionality of the languages and to have fun.
